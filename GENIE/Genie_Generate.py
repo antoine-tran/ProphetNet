@@ -199,6 +199,8 @@ def main():
     # setup_seed(args.seed)
     setup_env(args)
 
+    dist.init_process_group(backend="nccl")
+
     if dist.get_rank() == 0:
         if not os.path.exists(args.generate_path):
             os.makedirs(args.generate_path)
