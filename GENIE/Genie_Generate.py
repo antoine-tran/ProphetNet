@@ -100,6 +100,8 @@ CheckpointState = collections.namedtuple("CheckpointState",
 def load_states_from_checkpoint(model_file: str) -> CheckpointState:
     logger.info('Reading saved model from %s', model_file)
     state_dict = torch.load(model_file, map_location=lambda s, l: default_restore_location(s, 'cpu'))
+    print(state_dict.keys())
+    del state_dict["model_dict"]["passage_encoder.embeddings.position_ids"]
     logger.info('model_state_dict keys %s', state_dict.keys())
     return CheckpointState(**state_dict)
 
@@ -191,7 +193,11 @@ def setup_env(args):
     # store args
     if args.local_rank != -1:
         args.world_size = torch.distributed.get_world_size()
-        args.rank = dist.get_rank()
+        args.local_rank = dist.get_rank()
+    
+    else:
+        args.local_rank = 0
+        args.world_size = 1
 
 def main():
     # env setting
@@ -199,22 +205,24 @@ def main():
     # setup_seed(args.seed)
     setup_env(args)
 
-    dist.init_process_group(backend="nccl")
+    dist.init_process_group()
 
     if dist.get_rank() == 0:
         if not os.path.exists(args.generate_path):
             os.makedirs(args.generate_path)
-
+        
     log_path = os.path.join(args.generate_path, 'log')
     logger.configure(dir=log_path)
 
-    args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device_id = dist.get_rank() % torch.cuda.device_count()
+
+    # args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # define model and diffusion
     model, diffusion = create_model_and_diffusion(
         args
     )
-    model.to(args.device)
+    model.to(device_id)
     model.eval()
     # load trained model
     model_saved_state = load_states_from_checkpoint(args.eval_model_path)
@@ -253,8 +261,8 @@ def main():
             model_kwargs=None,
             top_p=-1.0,
         )
-        print("sample result shape: ", sample.shape)
-        print('decoding for e2e... ')
+        # print("sample result shape: ", sample.shape)
+        # print('decoding for e2e... ')
 
         logits = model.get_logits(sample)
         cands = torch.topk(logits, k=1, dim=-1)
@@ -284,7 +292,7 @@ def main():
                 text = line
                 src.append(text)
 
-        print("***** load " + args.data_name + " dev tgt dataset*****")
+        print("***** load " + args.data_name + " dev src dataset (" + str(len(src)) + ") *****")
         tgt = []
         test_tgt_path = os.path.join(args.data_path, args.data_name + "/org_data/test.tgt")
         with open(test_tgt_path, "r", encoding="utf-8") as ifile:
@@ -293,9 +301,11 @@ def main():
                 text = line
                 tgt.append(text)
 
+        print(f"World size: {args.world_size}. Loal rank: {args.local_rank}")
         shard_size = len(src) // args.world_size
         start_idx = args.local_rank * shard_size
-        end_idx = start_idx + shard_size
+        # end_idx = start_idx + shard_size
+        end_idx = 2
         if args.local_rank == args.world_size - 1:
             end_idx = len(src)
         scr_data_piece = src[start_idx:end_idx]
@@ -355,13 +365,14 @@ def main():
                     denoised_fn=partial(denoised_fn_round, args, emb_model.cuda()),
                     model_kwargs=model_kwargs,
                     top_p=-1.0,
+                    device=torch.device("cuda:0"),
                     interval_step=args.interval_step,
                 )
 
                 print("sample result shape: ", sample.shape)
                 print('decoding for e2e... ')
 
-                logits = model.module.get_logits(sample)
+                logits = model.get_logits(sample)
                 cands = torch.topk(logits, k=1, dim=-1)
                 sample_id_list = cands.indices
                 #print("decode id list example :", type(sample_id_list[0]), "  ", sample_id_list[0])
@@ -376,7 +387,7 @@ def main():
                 for sample_id in sample_id_list:
                     sentence = tokenizer.decode(sample_id.squeeze())
                     each_sample_list.append(clean(sentence))
-                    # print(sentence)
+                    print(sentence)
 
             # total_sample_list.append(each_sample_list)
             out_path = os.path.join(args.generate_path, "rank" + str(dist.get_rank()) + "_gen_seed_101" +

@@ -342,14 +342,15 @@ class CrossAttention_Diffusion_LM(nn.Module):
                                                  attention_mask=src_attention_mask)
                 passage_hidden = out.last_hidden_state
         else:
-            out = self.passage_encoder(input_ids=src_input_ids,
-                                       attention_mask=src_attention_mask)
+            # print(f" passage encoder device: {self.passage_encoder.device}")
+            out = self.passage_encoder(input_ids=src_input_ids.cuda(),
+                                       attention_mask=src_attention_mask.cuda())
             passage_hidden = out.last_hidden_state + 0 * out.pooler_output.unsqueeze(1)
 
         if answer_id is not None:
             answer_hidden_states = hidden_states.clone()
-            answer_out = self.passage_encoder(input_ids=answer_id,
-                                              attention_mask=answer_mask)
+            answer_out = self.passage_encoder(input_ids=answer_id.cuda(),
+                                              attention_mask=answer_mask.cuda())
             answer_hidden = answer_out.last_hidden_state + 0 * answer_out.pooler_output.unsqueeze(1)
             for block in self.transformer_blocks:
                 answer_hidden_states = block(answer_hidden_states, answer_hidden)

@@ -220,8 +220,8 @@ def main(config):
                         batch['src_input_ids'].shape[0], config.tgt_len, config.in_channels,
                     )
 
-                model_kwargs = {'src_attention_mask': batch['src_attention_mask'],
-                                'tgt_attention_mask': tgt_attention_mask,
+                model_kwargs = {'src_attention_mask': batch['src_attention_mask'].cuda(),
+                                'tgt_attention_mask': tgt_attention_mask.cuda(),
                                 'encoder_hidden_states': encoder_hidden_states,}
 
                 sample = sample_fn(

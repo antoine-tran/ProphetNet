@@ -765,6 +765,8 @@ class GaussianDiffusion:
             noise = self.q_sample(x_start, t, noise=forward_noise)
             # print("after noise", noise)
 
+        print(f"**************** Devivec: {device} ***********************")
+
         for sample in self.p_sample_loop_progressive(
             model,
             shape,
@@ -811,6 +813,8 @@ class GaussianDiffusion:
         else:
             img = th.randn(*shape, device=device)
         indices = list(range(self.num_timesteps))[::-1]
+
+        img.to(device)
 
         if progress:
             # Lazy import so that we don't depend on tqdm.
